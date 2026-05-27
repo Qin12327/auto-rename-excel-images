@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel图片批量重命名工具</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <header class="app-header">
+            <div class="header-inner">
+                <div class="logo">
+                    <span class="logo-icon">🖼️</span>
+                    <h1>Excel图片批量重命名工具</h1>
+                </div>
+                <p class="header-desc">纯前端处理 · 文件不会上传到服务器 · 安全可靠</p>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <nav class="step-nav">
+                <div class="step-item" :class="{ active: currentStep >= 0, done: currentStep > 0 }" @click="goStep(0)">
+                    <span class="step-num">1</span>
+                    <span class="step-label">上传文件</span>
+                </div>
+                <div class="step-line" :class="{ done: currentStep > 0 }"></div>
+                <div class="step-item" :class="{ active: currentStep >= 1, done: currentStep > 1 }" @click="goStep(1)">
+                    <span class="step-num">2</span>
+                    <span class="step-label">配置规则</span>
+                </div>
+                <div class="step-line" :class="{ done: currentStep > 1 }"></div>
+                <div class="step-item" :class="{ active: currentStep >= 2, done: currentStep > 2 }" @click="goStep(2)">
+                    <span class="step-num">3</span>
+                    <span class="step-label">预览确认</span>
+                </div>
+                <div class="step-line" :class="{ done: currentStep > 2 }"></div>
+                <div class="step-item" :class="{ active: currentStep >= 3 }">
+                    <span class="step-num">4</span>
+                    <span class="step-label">导出下载</span>
+                </div>
+            </nav>
+
+            <section class="step-panel" v-show="currentStep === 0">
+                <div class="panel-card">
+                    <h2 class="panel-title">上传Excel文件</h2>
+                    <div class="upload-zone" :class="{ dragover: isDragOver }"
+                         @dragover.prevent="isDragOver = true"
+                         @dragleave="isDragOver = false"
+                         @drop.prevent="handleDrop"
+                         @click="triggerFileInput">
+                        <div class="upload-icon">📁</div>
+                        <p class="upload-text">拖拽文件到此处，或 <em>点击上传</em></p>
+                        <p class="upload-hint">仅支持 .xlsx 格式，文件大小 ≤ 100MB</p>
+                    </div>
+                    <input type="file" ref="fileInput" accept=".xlsx" @change="handleFileSelect" hidden>
+                    <div class="upload-error" v-if="uploadError">
+                        <span class="error-icon">⚠️</span> {{ uploadError }}
+                    </div>
+                    <div class="upload-success" v-if="fileName">
+                        <span class="success-icon">✅</span> 已选择: <strong>{{ fileName }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="step-panel" v-show="currentStep === 1">
+                <div class="panel-card">
+                    <h2 class="panel-title">选择工作表 & 配置规则</h2>
+
+                    <div class="config-section">
+                        <h3 class="section-label">工作表选择</h3>
+                        <select v-model="config.sheet" class="form-select" @change="onSheetChange">
+                            <option value="" disabled>请选择工作表</option>
+                            <option v-for="s in sheetList" :key="s" :value="s">{{ s }}</option>
+                        </select>
+                    </div>
+
+                    <div class="config-section">
+                        <h3 class="section-label">图片位置</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>列号 (A=1, B=2...)</label>
+                                <input type="number" v-model.number="config.imageCol" min="1" max="26" class="form-input" placeholder="列号">
+                            </div>
+                            <div class="form-group">
+                                <label>起始行号</label>
+                                <input type="number" v-model.number="config.imageRow" min="1" class="form-input" placeholder="行号">
+                            </div>
+                        </div>
+                        <p class="form-tip">指定图片左上角锚点所在的列和起始行</p>
+                    </div>
+
+                    <div class="config-section">
+                        <h3 class="section-label">名字所在列</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>列号 (A=1, B=2...)</label>
+                                <input type="number" v-model.number="config.nameCol" min="1" max="26" class="form-input" placeholder="列号">
+                            </div>
+                        </div>
+                        <p class="form-tip">该列的单元格文本将用作图片的文件名</p>
+                    </div>
+
+                    <div class="config-section">
+                        <h3 class="section-label">跨行/列处理策略</h3>
+                        <div class="strategy-options">
+                            <label class="strategy-option" :class="{ selected: config.strategy === 'A' }">
+                                <input type="radio" v-model="config.strategy" value="A">
+                                <div class="strategy-content">
+                                    <span class="strategy-name">策略A · 只取左上角行</span>
+                                    <span class="strategy-desc">一张图片只生成一个文件，名字取自左上角所在行</span>
+                                </div>
+                            </label>
+                            <label class="strategy-option" :class="{ selected: config.strategy === 'B' }">
+                                <input type="radio" v-model="config.strategy" value="B">
+                                <div class="strategy-content">
+                                    <span class="strategy-name">策略B · 按行展开（推荐）</span>
+                                    <span class="strategy-desc">图片覆盖N行，生成N个副本，每行名字取自对应行</span>
+                                </div>
+                            </label>
+                            <label class="strategy-option" :class="{ selected: config.strategy === 'C' }">
+                                <input type="radio" v-model="config.strategy" value="C">
+                                <div class="strategy-content">
+                                    <span class="strategy-name">策略C · 按列展开</span>
+                                    <span class="strategy-desc">图片覆盖N列，生成N个副本，每列名字取自对应列</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="panel-actions">
+                        <button class="btn btn-secondary" @click="goStep(0)">← 重新上传</button>
+                        <button class="btn btn-primary" @click="generatePreview" :disabled="!config.sheet || previewLoading">
+                            {{ previewLoading ? '生成中...' : '生成预览 →' }}
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="step-panel" v-show="currentStep === 2">
+                <div class="panel-card">
+                    <h2 class="panel-title">预览与确认</h2>
+
+                    <div class="preview-toolbar">
+                        <div class="toolbar-left">
+                            <button class="btn btn-sm" @click="selectAll">全选</button>
+                            <button class="btn btn-sm" @click="deselectAll">取消全选</button>
+                            <span class="toolbar-info">共 {{ previewData.length }} 个副本，已选 {{ selectedCount }} 个</span>
+                        </div>
+                        <div class="toolbar-right">
+                            <label class="switch-label">
+                                <input type="checkbox" v-model="showOnlyWarnings">
+                                <span>仅显示警告/错误</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="preview-table-wrap" v-if="filteredPreviewData.length > 0">
+                        <table class="preview-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-check"><input type="checkbox" @change="toggleAll" :checked="allSelected"></th>
+                                    <th class="col-thumb">缩略图</th>
+                                    <th class="col-range">覆盖范围</th>
+                                    <th class="col-source">名字来源</th>
+                                    <th class="col-name">名字(可编辑)</th>
+                                    <th class="col-filename">最终文件名</th>
+                                    <th class="col-status">状态</th>
+                                    <th class="col-action">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(row, idx) in filteredPreviewData" :key="idx" :class="{ 'row-warning': row.status === '警告', 'row-error': row.status === '错误' }">
+                                    <td class="col-check"><input type="checkbox" v-model="row.selected"></td>
+                                    <td class="col-thumb">
+                                        <img v-if="row.thumbnail" :src="row.thumbnail" class="thumb-img" @click="previewImage(row.thumbnail)">
+                                        <span v-else class="no-img">无图</span>
+                                    </td>
+                                    <td class="col-range">{{ row.range }}</td>
+                                    <td class="col-source">{{ row.nameSource }}</td>
+                                    <td class="col-name"><input type="text" v-model="row.nameText" class="inline-input"></td>
+                                    <td class="col-filename"><input type="text" v-model="row.finalName" class="inline-input"></td>
+                                    <td class="col-status">
+                                        <span class="status-tag" :class="'status-' + row.status">{{ row.status }}</span>
+                                    </td>
+                                    <td class="col-action">
+                                        <button class="btn btn-sm btn-primary" @click="exportSingle(row)" :disabled="row.status === '错误'">单独导出</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="preview-empty" v-else>
+                        <p>暂无预览数据，请检查配置后重新生成</p>
+                    </div>
+
+                    <div class="panel-actions">
+                        <button class="btn btn-secondary" @click="goStep(1)">← 修改配置</button>
+                        <button class="btn btn-primary" @click="goStep(3)" :disabled="selectedCount === 0">
+                            导出选中 ({{ selectedCount }}) →
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="step-panel" v-show="currentStep === 3">
+                <div class="panel-card">
+                    <h2 class="panel-title">导出下载</h2>
+
+                    <div class="export-actions">
+                        <button class="btn btn-primary btn-lg" @click="exportSelected" :disabled="selectedCount === 0 || exporting">
+                            {{ exporting ? '导出中...' : '📦 导出选中为ZIP (' + selectedCount + '个)' }}
+                        </button>
+                        <button class="btn btn-success btn-lg" @click="downloadLog" :disabled="logData.length === 0">
+                            📄 下载日志CSV
+                        </button>
+                        <button class="btn btn-secondary btn-lg" @click="resetAll">
+                            🔄 重置
+                        </button>
+                    </div>
+
+                    <div class="progress-wrap" v-if="exporting">
+                        <div class="progress-bar">
+                            <div class="progress-fill" :style="{ width: exportProgress + '%' }"></div>
+                        </div>
+                        <p class="progress-text">{{ exportProgress }}%</p>
+                    </div>
+
+                    <div class="export-summary" v-if="exportSummary">
+                        <div class="summary-icon">✅</div>
+                        <p>{{ exportSummary }}</p>
+                    </div>
+
+                    <div class="log-section" v-if="logData.length > 0">
+                        <h3 class="section-label">处理日志</h3>
+                        <div class="log-table-wrap">
+                            <table class="log-table">
+                                <thead>
+                                    <tr>
+                                        <th>图片ID</th>
+                                        <th>覆盖范围</th>
+                                        <th>名字来源</th>
+                                        <th>最终文件名</th>
+                                        <th>状态</th>
+                                        <th>详细原因</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(log, idx) in logData" :key="idx">
+                                        <td>{{ log.imageId }}</td>
+                                        <td>{{ log.range }}</td>
+                                        <td>{{ log.nameSource }}</td>
+                                        <td>{{ log.finalName }}</td>
+                                        <td><span class="status-tag" :class="'status-' + log.status">{{ log.status }}</span></td>
+                                        <td>{{ log.reason }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="panel-actions">
+                        <button class="btn btn-secondary" @click="goStep(2)">← 返回预览</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div class="image-preview-overlay" v-if="previewImageUrl" @click="previewImageUrl = null">
+            <img :src="previewImageUrl" class="preview-full-img">
+        </div>
+
+        <footer class="app-footer">
+            <p>Excel图片批量重命名工具 · 纯前端处理 · 数据安全</p>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/file-saver/dist/FileSaver.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
