@@ -57,12 +57,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
     margin-bottom: 6px;
-}
-
-.logo-icon {
-    font-size: 32px;
 }
 
 .logo h1 {
